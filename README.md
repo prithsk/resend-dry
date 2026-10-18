@@ -22,3 +22,16 @@ python3 test_resend_dry.py
 ## License
 
 MIT
+
+## Fidelity against the live API
+
+`fidelity.py` sends ten requests, valid and invalid, to both the live Resend API and resend-dry, and compares the status code and error name. It uses Resend's test inbox `delivered@resend.dev`.
+
+```
+cp .env.example .env     # add RESEND_API_KEY
+python fidelity.py
+```
+
+<!-- fidelity:start -->
+_Run `python fidelity.py` to populate._
+<!-- fidelity:end -->

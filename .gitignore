@@ -1,7 +1,4 @@
 .env
-__pycache__/
-*.pyc
-state/
 outbox/
-results/*.json
-.venv/
+outbox-fidelity/
+__pycache__/
