@@ -51,11 +51,14 @@ def main():
         for name, path, body in CASES:
             live = call("https://api.resend.com", path, body); time.sleep(0.6)   # stay under Resend's rate limit
             dry = call("http://127.0.0.1:3124", path, body)
-            rows.append({"case": name, "live": shape(*live), "dry": shape(*dry), "live_message": live[1].get("message", ""), "match": shape(*live) == shape(*dry)})
+            rows.append({"case": name, "live": shape(*live), "dry": shape(*dry), "live_message": live[1].get("message", ""),
+                         "dry_message": dry[1].get("message", ""), "match": shape(*live) == shape(*dry),
+                         "msg_match": live[1].get("message", "") == dry[1].get("message", "")})
     finally:
         srv.terminate()
     n = sum(r["match"] for r in rows)
     out = [f"# resend-dry fidelity, {datetime.date.today()}", "", f"**Matched the live API's status and error name on {n} of {len(rows)} cases.**", "",
+           f"Error messages matched word for word on {sum(r['msg_match'] for r in rows if r['live_message'])} of {sum(1 for r in rows if r['live_message'])} error cases.", "",
            "| Case | Live Resend | resend-dry | Match |", "|---|---|---|---|"]
     out += [f"| {r['case']} | {r['live']} | {r['dry']} | {'yes' if r['match'] else 'NO'} |" for r in rows]
     out += ["", "Live error messages, for calibrating mismatches:", ""] + [f"- {r['case']}: {r['live_message']}" for r in rows if r["live_message"]]

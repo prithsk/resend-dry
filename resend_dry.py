@@ -52,16 +52,22 @@ def _all():
 def _by_id(i):
     return next((m for m in _all() if m["id"] == i), None)
 
+import re
+EMAIL = re.compile(r"^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$")
+NAMED = re.compile(r"^[^<>]*<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$")
+
 def validate(msg):
-    """Mirror the checks Resend rejects on, so dev catches them before prod."""
-    errs = []
-    if not msg.get("from"): errs.append("missing_required_field: from")
+    """First problem as (name, message), matching the live Resend API's names and wording, or None."""
+    if not msg.get("from"): return ("validation_error", "Missing `from` field.")
     to = msg.get("to")
-    if not to: errs.append("missing_required_field: to")
-    if isinstance(to, list) and len(to) > 50: errs.append("validation_error: to has more than 50 recipients")
-    if not msg.get("subject"): errs.append("missing_required_field: subject")
-    if not (msg.get("html") or msg.get("text") or msg.get("react")): errs.append("missing_required_field: html or text")
-    return errs
+    if not to: return ("missing_required_field", "Missing `to` field.")   # Resend names this one differently
+    if not msg.get("subject"): return ("validation_error", "Missing `subject` field.")
+    if not (msg.get("html") or msg.get("text") or msg.get("react")): return ("validation_error", "Missing `html` or `text` field.")
+    f = str(msg.get("from")).strip()
+    if not (EMAIL.match(f) or NAMED.match(f)):
+        return ("validation_error", "Invalid `from` field. The email address needs to follow the `email@example.com` or `Name <email@example.com>` format.")
+    if isinstance(to, list) and len(to) > 50: return ("validation_error", "Field `to` has a maximum of 50 items.")
+    return None
 
 class H(BaseHTTPRequestHandler):
     def _json(self, code, obj):
@@ -76,16 +82,15 @@ class H(BaseHTTPRequestHandler):
         try: body = json.loads(raw or b"{}")
         except Exception: return self._json(400, {"name": "validation_error", "message": "invalid JSON"})
         if p == "/emails":
-            errs = validate(body)
-            if errs: return self._json(422, {"name": "validation_error", "message": "; ".join(errs)})
+            err = validate(body)
+            if err: return self._json(422, {"statusCode": 422, "name": err[0], "message": err[1]})
             m = _save(body); return self._json(200, {"id": m["id"]})
         if p == "/emails/batch":
             if not isinstance(body, list): return self._json(400, {"name": "validation_error", "message": "batch body must be a list"})
-            ids = []
-            for item in body:
-                errs = validate(item)
-                if errs: return self._json(422, {"name": "validation_error", "message": "; ".join(errs)})
-                ids.append({"id": _save(item)["id"]})
+            for item in body:                       # check the whole batch before saving any of it
+                err = validate(item)
+                if err: return self._json(422, {"statusCode": 422, "name": err[0], "message": err[1]})
+            ids = [{"id": _save(item)["id"]} for item in body]
             return self._json(200, {"data": ids})
         self._json(404, {"name": "not_found", "message": p})
     def do_GET(self):
