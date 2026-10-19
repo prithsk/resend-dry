@@ -3,7 +3,7 @@
   python fidelity.py          # needs RESEND_API_KEY in .env; starts resend-dry itself
 Uses Resend's documented test inbox delivered@resend.dev, so live sends go nowhere real.
 """
-import json, os, subprocess, sys, time, urllib.request, urllib.error, datetime
+import json, os, subprocess, sys, time, urllib.request, urllib.error, datetime, statistics
 from pathlib import Path
 try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception: pass
@@ -29,7 +29,14 @@ CASES = [
     ("batch with one bad", "/emails/batch", [ok, {k: v for k, v in ok.items() if k != "subject"}]),
 ]
 
+TIMES = {"live": [], "dry": []}
+
 def call(base, path, body):
+    kind = "dry" if "127.0.0.1" in base else "live"; t0 = time.perf_counter()
+    try: return _call(base, path, body)
+    finally: TIMES[kind].append((time.perf_counter() - t0) * 1000)
+
+def _call(base, path, body):
     req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST",
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {KEY or 'dry'}", "User-Agent": "resend-dry-fidelity"})
     try:
@@ -57,7 +64,9 @@ def main():
     finally:
         srv.terminate()
     n = sum(r["match"] for r in rows)
-    out = [f"# resend-dry fidelity, {datetime.date.today()}", "", f"**Matched the live API's status and error name on {n} of {len(rows)} cases.**", "",
+    lv, dr = statistics.median(TIMES["live"]), statistics.median(TIMES["dry"])
+    speed = f"resend-dry answered in {dr:.1f} ms median against {lv:.0f} ms for the live API, {lv / dr:.0f}x faster, with no rate limit and nothing sent."
+    out = [f"# resend-dry fidelity, {datetime.date.today()}", "", f"**Matched the live API's status and error name on {n} of {len(rows)} cases.**", "", speed, "",
            f"Error messages matched word for word on {sum(r['msg_match'] for r in rows if r['live_message'])} of {sum(1 for r in rows if r['live_message'])} error cases.", "",
            "| Case | Live Resend | resend-dry | Match |", "|---|---|---|---|"]
     out += [f"| {r['case']} | {r['live']} | {r['dry']} | {'yes' if r['match'] else 'NO'} |" for r in rows]
